@@ -1,65 +1,124 @@
-# e+e POS
+# e+e POS (`ee_pos`)
 
-Flutter-based Point of Sale app.
+Aplikasi **Point of Sale (POS)** berbasis Flutter untuk operasional kasir kafe/restoran (mis. **e+e Coffee**). Terhubung ke backend POS API, bisa dipakai saat jaringan tidak stabil, dan mendukung cetak struk serta tiket dapur/bar ke printer thermal (Bluetooth/USB).
+
+## Tentang aplikasi
+
+| Aspek | Keterangan |
+|--------|------------|
+| **Tujuan** | Transaksi penjualan di lokasi: pilih menu, keranjang, diskon, pajak, bayar, cetak. |
+| **Pengguna** | Kasir / staff outlet yang login ke sistem POS. |
+| **Platform** | Utama Android (tablet/HP kasir); build Flutter juga memungkinkan target desktop lain jika dikonfigurasi. |
+| **Backend** | REST API (Laravel-style public path), URL dikonfigurasi lewat `API_URL`. |
+| **Mode offline** | Order dan beberapa request bisa diantrikan lokal; `SyncManager` menyinkronkan saat online (`offline_queue` + `outbox`). |
+| **Cetak** | Struk customer, tiket antrian (customer printer), kitchen, dan bar — profil printer di Settings. |
+
+### Fitur utama
+
+- **Layar POS** — grid menu, pencarian produk (debounce), keranjang, subtotal/diskon/pajak, tipe order.
+- **Pembayaran** — metode bayar dari API, konfirmasi & cetak, dialog sukses + cetak ulang.
+- **Open Bills** — simpan bill lokal (draft), lanjutkan pesanan, tambah item (delta).
+- **Split bill** — bagi total ke beberapa orang + cetak per bagian.
+- **Pengaturan** — pajak, diskon, tipe order, template struk, printer (customer/kitchen/bar), shift, dll.
+- **Autentikasi** — login kasir; sesi API via cookie (`ApiService`).
+
+### Alur singkat
+
+```
+Splash → init DB & SyncManager → Login (jika perlu) → POS Home
+                                              ↓
+                         Menu → Cart → Pay / Save Bill / Split → Cetak
+                                              ↓
+                         Offline? → antrian lokal → sync otomatis saat online
+```
 
 ## Prerequisites
 
 - Flutter SDK (Dart 3.3+)
-- Android SDK + Android Studio (for Android builds)
+- Android SDK + Android Studio (untuk build Android)
 
 ## Setup
 
 1. Install dependencies:
-   - `flutter pub get`
-2. Run app in debug:
-   - `flutter run`
+   ```bash
+   flutter pub get
+   ```
+2. Jalankan debug:
+   ```bash
+   flutter run
+   ```
 
 ## API Configuration
 
-`lib/config.dart` reads API URL from dart-define:
+`lib/config.dart` membaca URL API dari `--dart-define`:
 
-- Key: `API_URL`
-- Default: `https://cafepos2.epluseglobal.com/pos-api/public`
+| | |
+|---|---|
+| **Key** | `API_URL` |
+| **Default** | `https://cafepos2.epluseglobal.com/pos-api/public` |
 
-Example run:
+Contoh:
 
-- `flutter run --dart-define=API_URL=https://your-api-host/pos-api/public`
+```bash
+flutter run --dart-define=API_URL=https://your-api-host/pos-api/public
+```
+
+Build release dengan API custom:
+
+```bash
+flutter build apk --release --dart-define=API_URL=https://your-api-host/pos-api/public
+```
 
 ## Android Release Signing
 
-Release signing values can be loaded from:
+Nilai signing release bisa dari:
 
-- `android/gradle.properties`, or
-- Environment variables (`RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`)
+- `android/gradle.properties`, atau
+- environment variables: `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`
 
-Recommended local setup:
+Setup lokal (disarankan):
 
-1. Copy `android/gradle.properties.local.example` to `android/gradle.properties.local`.
-2. Fill in your real keystore values in `android/gradle.properties.local`.
-3. Pass those values as environment variables when building release, or place them in your local/private Gradle config.
-
-Important: never commit real passwords or private keystore files.
+1. Salin `android/gradle.properties.local.example` → `android/gradle.properties.local`
+2. Isi path keystore dan password di file lokal itu
+3. Jangan commit password atau file `.jks` ke repository
 
 ## Useful Commands
 
-- Static analyze: `flutter analyze`
-- Run tests: `flutter test`
-- Build APK release: `flutter build apk --release`
+| Perintah | Fungsi |
+|----------|--------|
+| `flutter analyze` | Cek masalah statis |
+| `flutter test` | Unit/widget tests |
+| `flutter build apk --release` | APK production |
 
-## Performance notes
+## Performance & arsitektur ringkas
 
-- Use one shared API client: `ApiService.shared()` (session/cookies reused).
-- Offline sync at startup: `SyncManager` only (`offline_queue` table). Do not also start `SyncService.start()` unless you migrate to the `outbox` table.
-- Tax settings: `taxSettingsProvider` — cart updates after saving taxes in Settings.
-- Search on POS home is debounced (180ms) to reduce rebuild churn while typing.
+- **Satu klien API:** `ApiService.shared()` — cookie/sesi dipakai ulang.
+- **Satu runner sync:** `SyncManager.instance.init()` di bootstrap; jangan jalankan timer sync kedua. Pemicu manual: `requestBackgroundSync()` / `SyncManager.instance.syncNow()`.
+- **Pajak:** `taxSettingsProvider` — cart ikut berubah setelah simpan di Settings.
+- **Pencarian menu:** debounce 180 ms di layar POS.
 
-## Project layout (lib)
+## Struktur proyek (`lib/`)
 
 | Area | Path |
 |------|------|
-| POS screen | `pages/pos_home.dart`, `widgets/menu_grid.dart`, `widgets/cart_panel.dart` |
-| API | `services/api_service.dart`, `config.dart` |
-| Offline | `services/sync_manager.dart`, `repositories/offline_queue_repo.dart` |
-| Local DB | `db/local_db.dart`, repos under `repositories/` |
+| Entry & bootstrap | `main.dart`, `bootstrap/splash_bootstrap.dart` |
+| Layar POS | `pages/pos_home.dart`, `widgets/menu_grid.dart`, `widgets/product_grid.dart` |
+| Keranjang & bayar | `widgets/cart_panel.dart`, `widgets/cart/cart_dialogs.dart`, `cart_helpers.dart`, `cart_ui_shared.dart` |
+| API & config | `services/api_service.dart`, `config.dart` |
+| Offline sync | `services/sync_manager.dart`, `offline/outbox_repo.dart`, `repositories/offline_queue_repo.dart` |
+| Database lokal | `db/local_db.dart`, `repositories/*` |
 | Settings | `pages/settings_page.dart`, `widgets/settings/` |
-| Printing | `widgets/bill_receipt.dart`, `services/printer_prefs.dart` |
+| Cetak | `widgets/bill_receipt.dart`, `services/printer_prefs.dart` |
+| State (Riverpod) | `providers/` |
+
+## Tech stack
+
+- **Flutter** + **Riverpod** (state)
+- **Dio** (HTTP + cookies)
+- **sqflite** (SQLite lokal)
+- **connectivity_plus** (deteksi jaringan untuk sync)
+- **blue_thermal_printer** / **flutter_usb_thermal_plugin** + ESC/POS utils (thermal print)
+
+## Versi
+
+Lihat `pubspec.yaml` — saat ini `version: 1.0.1+2`.
