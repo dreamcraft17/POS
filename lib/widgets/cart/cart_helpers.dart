@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../providers/receipt_settings_provider.dart';
 import '../../services/api_service.dart';
 import '../bill_receipt.dart';
+
+/// Store title for receipts / queue tickets (Settings → Receipt template).
+String receiptStoreTitle(WidgetRef ref) =>
+    ref.read(receiptSettingsProvider).title;
 
 /// Local daily queue number (format `YYYYMMDD-XXX`).
 Future<String> nextLocalQueueNo() async {
