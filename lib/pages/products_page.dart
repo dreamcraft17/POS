@@ -14,6 +14,14 @@ class _ProductsPageState extends ConsumerState<ProductsPage> {
   String _query = '';
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) enableProductsNetworkLoad(ref);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final productsAsync = ref.watch(productsProvider);
 
@@ -61,12 +69,7 @@ class _ProductsPageState extends ConsumerState<ProductsPage> {
                       .toList();
 
                   Future<void> refreshProducts() async {
-                    ref.invalidate(productsProvider);
-                    try {
-                      await ref.read(productsProvider.future);
-                    } catch (_) {
-                      // Keep pull-to-refresh safe; provider exposes error state.
-                    }
+                    await ref.read(productsProvider.notifier).reloadFromNetwork();
                   }
 
                   if (filtered.isEmpty) {

@@ -98,12 +98,7 @@ class _MenusPageState extends ConsumerState<MenusPage> {
   }
 
   Future<void> _reload() async {
-    ref.invalidate(menusProvider);
-    try {
-      await ref.read(menusProvider.future);
-    } catch (_) {
-      // Keep refresh flow resilient; UI already handles provider error state.
-    }
+    await ref.read(menusProvider.notifier).reloadFromNetwork();
   }
 
   Future<void> _createOrEdit({_MenuItem? edit}) async {

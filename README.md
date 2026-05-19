@@ -98,7 +98,9 @@ Setup lokal (disarankan):
 - **Cart:** `ListView.builder`, persist SQLite di background (`unawaited`), tombol aksi hanya rebuild saat cart kosong ↔ berisi.
 - **Pajak:** `cartTotalsProvider` — total terpisah dari list item.
 - **Pencarian menu:** debounce 220 ms + `TextEditingController` (tanpa rebuild tiap ketik).
-- **Navigasi:** `IndexedStack` menjaga state halaman saat pindah tab.
+- **Navigasi:** tab lazy-load (hanya POS di awal); state tab tetap setelah pertama dibuka.
+- **Produk:** API sync ditunda sampai buka tab Products/Stock (cache SQLite tetap dipakai).
+- **Kitchen/bar split:** `menuTypeMapProvider` dari menu cache — tanpa fetch API saat bayar.
 
 ## Struktur proyek (`lib/`)
 

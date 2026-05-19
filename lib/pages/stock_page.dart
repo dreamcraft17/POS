@@ -17,6 +17,14 @@ class _StockPageState extends ConsumerState<StockPage> {
   String query = '';
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) enableProductsNetworkLoad(ref);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final productsAsync = ref.watch(productsProvider);
 

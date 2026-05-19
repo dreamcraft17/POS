@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../providers/menu_filter_providers.dart';
 import '../../providers/receipt_settings_provider.dart';
-import '../../services/api_service.dart';
+import '../../models/menu.dart';
+import '../../repositories/menus_repo.dart';
 import '../bill_receipt.dart';
 
 /// Store title for receipts / queue tickets (Settings → Receipt template).
@@ -26,9 +28,9 @@ Future<String> nextLocalQueueNo() async {
   return '$y$m$d-${next.toString().padLeft(3, '0')}';
 }
 
-Map<String, String>? _menuTypeCache;
-DateTime _menuTypeCacheAt = DateTime.fromMillisecondsSinceEpoch(0);
-const Duration _menuTypeCacheTtl = Duration(seconds: 30);
+Map<String, String>? _menuTypeMemCache;
+DateTime _menuTypeMemCacheAt = DateTime.fromMillisecondsSinceEpoch(0);
+const Duration _menuTypeMemCacheTtl = Duration(minutes: 10);
 
 Map<String, dynamic> itemToPayload(dynamic it) {
   if (it.sku.startsWith('menu:')) {
@@ -47,29 +49,37 @@ Map<String, dynamic> itemToPayload(dynamic it) {
   };
 }
 
-/// Menu code → type map from `/api/menus` (cached briefly).
-Future<Map<String, String>> buildMenuTypeMap() async {
-  final now = DateTime.now();
-  if (_menuTypeCache != null &&
-      now.difference(_menuTypeCacheAt) < _menuTypeCacheTtl) {
-    return _menuTypeCache!;
+Map<String, String> _mapFromMenuModels(List<MenuItemModel> menus) {
+  return {
+    for (final m in menus)
+      if (m.code.isNotEmpty) m.code: (m.type ?? '').trim().toLowerCase(),
+  };
+}
+
+/// Menu code → type. Prioritas: Riverpod → SQLite cache (tanpa hit API).
+Future<Map<String, String>> buildMenuTypeMap({WidgetRef? ref}) async {
+  if (ref != null) {
+    final fromRiverpod = ref.read(menuTypeMapProvider);
+    if (fromRiverpod.isNotEmpty) return fromRiverpod;
   }
 
-  final api = ApiService.shared();
-  try {
-    final menus = await api.menus();
-    final Map<String, String> m = {};
-    for (final x in menus) {
-      final code = (x['code'] ?? '').toString();
-      final type = (x['type'] ?? '').toString().toLowerCase();
-      if (code.isNotEmpty) m[code] = type;
-    }
-    _menuTypeCache = m;
-    _menuTypeCacheAt = now;
-    return m;
-  } catch (_) {
-    return _menuTypeCache ?? {};
+  final now = DateTime.now();
+  if (_menuTypeMemCache != null &&
+      now.difference(_menuTypeMemCacheAt) < _menuTypeMemCacheTtl) {
+    return _menuTypeMemCache!;
   }
+
+  try {
+    final cached = await MenusRepo().readCache();
+    if (cached.isNotEmpty) {
+      final m = _mapFromMenuModels(cached);
+      _menuTypeMemCache = m;
+      _menuTypeMemCacheAt = now;
+      return m;
+    }
+  } catch (_) {}
+
+  return _menuTypeMemCache ?? const {};
 }
 
 List<QueueItem> queueItemsFor(

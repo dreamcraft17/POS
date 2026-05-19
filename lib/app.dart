@@ -14,6 +14,8 @@ import '../widgets/session_gate.dart'; // sesuai file yang sudah kamu punya di k
 import 'pages/transactions_page.dart';
 import 'providers/products_provider.dart';
 import 'providers/low_stock_provider.dart';
+import 'repositories/products_repo.dart';
+import '../models/product.dart';
 
 class POSApp extends StatelessWidget {
   const POSApp({super.key});
@@ -151,7 +153,11 @@ class _AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<_AppShell> {
+  static const _tabCount = 6;
+
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  final List<Widget?> _lazyPages = List<Widget?>.filled(_tabCount, null);
+
   int _index = 0;
   bool _showRail = false;
   bool _stockDialogOpen = false;
@@ -173,34 +179,66 @@ class _AppShellState extends ConsumerState<_AppShell> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_canAutoShow()) _maybeShowPosStockDialog();
+  void initState() {
+    super.initState();
+    _lazyPages[0] = const POSHome();
+    Future.delayed(const Duration(seconds: 6), () {
+      if (mounted && _canAutoShow()) _maybeShowPosStockDialog();
     });
   }
 
-  void _maybeShowPosStockDialog() {
+  Widget _createPage(int i) {
+    switch (i) {
+      case 0:
+        return const POSHome();
+      case 1:
+        return const MenusPage();
+      case 2:
+        return const ProductsPage();
+      case 3:
+        return const StockPage();
+      case 4:
+        return const TransactionsPage();
+      case 5:
+        return const SettingsPage();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  void _selectTab(int i) {
+    setState(() {
+      _lazyPages[i] ??= _createPage(i);
+      _index = i;
+      final wide = MediaQuery.of(context).size.width >= 900;
+      if (wide) _showRail = false;
+    });
+    if (i == 2 || i == 3) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) enableProductsNetworkLoad(ref);
+      });
+    }
+    if (i == 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_canAutoShow()) _maybeShowPosStockDialog();
+      });
+    }
+  }
+
+  Future<void> _maybeShowPosStockDialog() async {
     if (!_canAutoShow()) return;
 
-    final productsAsync = ref.read(productsProvider);
-    if (!productsAsync.hasValue) return;
-    // if (!productsAsync.hasValue) {
-    //   ref.listen(productsProvider, (prev, next) {
-    //     if (_index == 0 &&
-    //         !_stockDialogOpen &&
-    //         next.hasValue &&
-    //         _canAutoShow()) {
-    //       Future.microtask(_maybeShowPosStockDialog);
-    //     }
-    //   });
-    //   return;
-    // }
-
-    final lowOut = ref.read(lowStockProvider);
     final threshold = ref.read(lowStockThresholdProvider);
-    final low = lowOut.low;
-    final out = lowOut.out;
+    final products = await ProductsRepo().readCache();
+    final low = <Product>[];
+    final out = <Product>[];
+    for (final p in products) {
+      if (p.stock <= 0) {
+        out.add(p);
+      } else if (p.stock <= threshold) {
+        low.add(p);
+      }
+    }
 
     if (low.isEmpty && out.isEmpty) return;
 
@@ -222,7 +260,13 @@ class _AppShellState extends ConsumerState<_AppShell> {
               const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
           title: Row(
             children: [
-              Image.asset('assets/icon/logo.png', height: 100, width: 100),
+              Image.asset(
+                'assets/icon/logo.png',
+                height: 48,
+                width: 48,
+                cacheHeight: 96,
+                cacheWidth: 96,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -283,7 +327,7 @@ class _AppShellState extends ConsumerState<_AppShell> {
             TextButton.icon(
               onPressed: () {
                 Navigator.of(ctx).pop();
-                ref.invalidate(productsProvider);
+                enableProductsNetworkLoad(ref);
               },
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh'),
@@ -384,15 +428,14 @@ class _AppShellState extends ConsumerState<_AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = const [
-      POSHome(),
-      MenusPage(),
-      ProductsPage(),
-      StockPage(),
-      TransactionsPage(),
-      SettingsPage(),
+    final titles = const [
+      'POS',
+      'Menus',
+      'Products',
+      'Stock',
+      'Transactions',
+      'Settings',
     ];
-    final titles = const ['POS', 'Menus', 'Products', 'Stock','Transactions', 'Settings'];
 
     final rail = NavigationRail(
       selectedIndex: _index,
@@ -429,30 +472,14 @@ class _AppShellState extends ConsumerState<_AppShell> {
           label: Text('Settings'),
         ),
       ],
-      onDestinationSelected: (i) {
-        setState(() {
-          _index = i;
-          final wide = MediaQuery.of(context).size.width >= 900;
-          if (wide) _showRail = false;
-        });
-        if (i == 0) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (_canAutoShow()) _maybeShowPosStockDialog();
-          });
-        }
-      },
+      onDestinationSelected: _selectTab,
     );
 
     final drawer = NavigationDrawer(
       selectedIndex: _index,
       onDestinationSelected: (i) {
         Navigator.pop(context);
-        setState(() => _index = i);
-        if (i == 0) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (_canAutoShow()) _maybeShowPosStockDialog();
-          });
-        }
+        _selectTab(i);
       },
       children: const [
         SizedBox(height: 8),
@@ -547,7 +574,10 @@ class _AppShellState extends ConsumerState<_AppShell> {
               Expanded(
                 child: IndexedStack(
                   index: _index,
-                  children: pages,
+                  children: List.generate(
+                    _tabCount,
+                    (i) => _lazyPages[i] ?? const SizedBox.shrink(),
+                  ),
                 ),
               ),
             ],
@@ -603,8 +633,10 @@ class _TitleWithLogo extends StatelessWidget {
       children: [
         Image.asset(
           'assets/icon/logo.png',
-          height: 100,
-          width: 100,
+          height: 36,
+          width: 36,
+          cacheHeight: 72,
+          cacheWidth: 72,
         ),
         const SizedBox(width: 8),
         Flexible(

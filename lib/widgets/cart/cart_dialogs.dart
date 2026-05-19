@@ -285,7 +285,7 @@ Future<void> showCartPayDialog(
                                         : await nextLocalQueueNo();
 
                                     final typeMap =
-                                        await buildMenuTypeMap();
+                                        await buildMenuTypeMap(ref: ref);
                                     final customerItems = queueItemsAll(
                                         cart);
 

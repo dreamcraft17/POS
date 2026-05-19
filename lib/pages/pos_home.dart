@@ -20,10 +20,7 @@ class POSHome extends ConsumerStatefulWidget {
 
 class _POSHomeState extends ConsumerState<POSHome> {
   Future<void> _refreshAll() async {
-    ref.invalidate(menusProvider);
-    try {
-      await ref.read(menusProvider.future);
-    } catch (_) {}
+    await ref.read(menusProvider.notifier).reloadFromNetwork();
   }
 
   @override
