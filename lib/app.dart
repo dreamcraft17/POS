@@ -544,7 +544,12 @@ class _AppShellState extends ConsumerState<_AppShell> {
                   ),
                 ),
               if (wide && _showRail) const VerticalDivider(width: 1),
-              Expanded(child: pages[_index]),
+              Expanded(
+                child: IndexedStack(
+                  index: _index,
+                  children: pages,
+                ),
+              ),
             ],
           ),
         );

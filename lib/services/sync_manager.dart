@@ -20,19 +20,24 @@ class SyncManager {
   final _outbox = OutboxRepo();
   StreamSubscription<List<ConnectivityResult>>? _sub;
   Timer? _timer;
+  Timer? _connectivityDebounce;
   bool _running = false;
   bool _syncing = false;
   DateTime _lastSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
 
-  static const Duration _syncInterval = Duration(seconds: 20);
-  static const Duration _minSyncGap = Duration(seconds: 3);
+  static const Duration _syncInterval = Duration(seconds: 30);
+  static const Duration _minSyncGap = Duration(seconds: 5);
+  static const Duration _connectivityDebounceDelay = Duration(seconds: 2);
 
   Future<void> init() async {
     if (_running) return;
     _running = true;
 
     _sub = Connectivity().onConnectivityChanged.listen((_) {
-      unawaited(_kick());
+      _connectivityDebounce?.cancel();
+      _connectivityDebounce = Timer(_connectivityDebounceDelay, () {
+        unawaited(_kick());
+      });
     });
     _timer = Timer.periodic(_syncInterval, (_) {
       unawaited(_kick());
@@ -44,6 +49,7 @@ class SyncManager {
   Future<void> dispose() async {
     await _sub?.cancel();
     _timer?.cancel();
+    _connectivityDebounce?.cancel();
     _running = false;
   }
 

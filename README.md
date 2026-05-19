@@ -93,9 +93,12 @@ Setup lokal (disarankan):
 ## Performance & arsitektur ringkas
 
 - **Satu klien API:** `ApiService.shared()` — cookie/sesi dipakai ulang.
-- **Satu runner sync:** `SyncManager.instance.init()` di bootstrap; jangan jalankan timer sync kedua. Pemicu manual: `requestBackgroundSync()` / `SyncManager.instance.syncNow()`.
-- **Pajak:** `taxSettingsProvider` — cart ikut berubah setelah simpan di Settings.
-- **Pencarian menu:** debounce 180 ms di layar POS.
+- **Satu runner sync:** `SyncManager.instance.init()` di bootstrap (interval 30s, debounce konektivitas 2s, gap minimal 5s). Pemicu manual: `requestBackgroundSync()` / `SyncManager.instance.syncNow()`.
+- **POS tidak saling rebuild:** panel menu (`_PosCatalogPane`) terpisah dari `CartPanel`; filter menu di `filteredMenusProvider`.
+- **Cart:** `ListView.builder`, persist SQLite di background (`unawaited`), tombol aksi hanya rebuild saat cart kosong ↔ berisi.
+- **Pajak:** `cartTotalsProvider` — total terpisah dari list item.
+- **Pencarian menu:** debounce 220 ms + `TextEditingController` (tanpa rebuild tiap ketik).
+- **Navigasi:** `IndexedStack` menjaga state halaman saat pindah tab.
 
 ## Struktur proyek (`lib/`)
 

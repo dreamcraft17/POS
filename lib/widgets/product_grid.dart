@@ -42,6 +42,9 @@ class ProductGrid extends ConsumerWidget {
     return GridView.builder(
       key: const PageStorageKey('productGrid'),
       padding: const EdgeInsets.only(bottom: 10),
+      cacheExtent: 520,
+      addAutomaticKeepAlives: false,
+      addRepaintBoundaries: true,
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 240, // ukuran kartu stabil ~240px
         childAspectRatio: 3 / 4, // kartu sedikit lebih tinggi
@@ -51,10 +54,13 @@ class ProductGrid extends ConsumerWidget {
       itemCount: filtered.length,
       itemBuilder: (context, i) {
         final p = filtered[i];
-        return _ProductTile(
-          product: p,
-          onAddToCart: () => ref.read(cartProvider.notifier).add(p),
-          onLongPress: () => showEditProductDialog(context, ref, p),
+        return RepaintBoundary(
+          child: _ProductTile(
+            key: ValueKey(p.sku),
+            product: p,
+            onAddToCart: () => ref.read(cartProvider.notifier).add(p),
+            onLongPress: () => showEditProductDialog(context, ref, p),
+          ),
         );
       },
     );
@@ -63,6 +69,7 @@ class ProductGrid extends ConsumerWidget {
 
 class _ProductTile extends StatefulWidget {
   const _ProductTile({
+    super.key,
     required this.product,
     required this.onAddToCart,
     required this.onLongPress,
@@ -277,25 +284,16 @@ class _MediaBox extends StatelessWidget {
           colors: [Color(0xFFF7F8FB), Color(0xFFFFFFFF)],
         ),
       ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: CustomPaint(
-              painter: const _DotsPainter(opacity: .06),
-            ),
+      child: Center(
+        child: Text(
+          initials,
+          style: const TextStyle(
+            fontSize: 34,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.1,
+            color: PosTheme.black,
           ),
-          Center(
-            child: Text(
-              initials,
-              style: const TextStyle(
-                fontSize: 34,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.1,
-                color: PosTheme.black,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -402,22 +400,3 @@ class _StockChip extends StatelessWidget {
   }
 }
 
-class _DotsPainter extends CustomPainter {
-  const _DotsPainter({this.opacity = .06});
-  final double opacity;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = Colors.black.withValues(alpha: opacity);
-    const step = 12.0;
-    for (double y = 6; y < size.height; y += step) {
-      for (double x = 6; x < size.width; x += step) {
-        canvas.drawCircle(Offset(x, y), 1.2, paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DotsPainter oldDelegate) =>
-      oldDelegate.opacity != opacity;
-}

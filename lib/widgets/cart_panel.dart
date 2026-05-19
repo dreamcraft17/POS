@@ -4,7 +4,6 @@ import 'package:ee_pos/repositories/open_bills_repo.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../services/tax_prefs.dart';
 import '../providers/discount_providers.dart';
 import '../providers/cart_provider.dart';
 import '../providers/products_provider.dart';
@@ -15,7 +14,8 @@ import '../utils/formatting.dart';
 import './bill_receipt.dart';
 import '../providers/auth_providers.dart'; // for cashier name
 import '../ui/top_message.dart';
-import '../providers/tax_settings_provider.dart';
+import '../providers/cart_draft_provider.dart';
+import '../providers/cart_totals_provider.dart';
 import 'cart/cart_dialogs.dart';
 import 'cart/cart_helpers.dart';
 import 'cart/cart_ui_shared.dart';
@@ -31,24 +31,6 @@ class CartPanel extends ConsumerStatefulWidget {
 class _CartPanelState extends ConsumerState<CartPanel> {
   @override
   Widget build(BuildContext context) {
-    final cart = ref.watch(cartProvider);
-    final selectedDiscount = ref.watch(selectedDiscountProvider);
-    final taxSettings = ref.watch(taxSettingsProvider).valueOrNull;
-    final taxEnabled = taxSettings?.enabled ?? kDefaultTaxEnabled;
-    final taxRatePct = taxSettings?.ratePercent ?? kDefaultTaxRatePct;
-    final taxRate = taxEnabled ? (taxRatePct / 100.0) : 0.0;
-
-    final subtotal = cart.fold<int>(0, (s, it) => s + it.priceCents * it.qty);
-    final discount = computeDiscountCents(selectedDiscount, subtotal);
-    final taxableBase = (subtotal - discount).clamp(0, 1 << 31);
-    final tax = (taxableBase * taxRate).round();
-    final total = taxableBase + tax;
-
-    final taxPctStr = (taxRate * 100).toStringAsFixed(
-      ((taxRate * 100).truncateToDouble() == (taxRate * 100)) ? 0 : 1,
-    );
-    final taxLabel = 'Tax ($taxPctStr%)';
-
     return Container(
       color: PosTheme.panel,
       padding: const EdgeInsets.all(12),
@@ -59,32 +41,44 @@ class _CartPanelState extends ConsumerState<CartPanel> {
           Expanded(
             child: RefreshIndicator.adaptive(
               onRefresh: widget.onRefreshAll,
-              child: _CartList(),
+              child: const _CartList(),
             ),
           ),
           const Divider(color: PosTheme.border),
-          _TotalsSection(
-            subtotal: subtotal,
-            discount: discount,
-            tax: tax,
-            total: total,
-            showDiscount: selectedDiscount != null,
-            discountLabel: selectedDiscount == null
-                ? ''
-                : (selectedDiscount.code.isNotEmpty
-                    ? 'Discount'
-                    : "Discount (${selectedDiscount.kind.name == 'percent' ? '${selectedDiscount.value.toStringAsFixed(0)}%' : selectedDiscount.name})"),
-            taxLabelOverride: taxLabel,
-          ),
-          const SizedBox(height: 8),
-          _ActionsSection(
-            onRefreshAll: widget.onRefreshAll,
-            cartTotalCents: total,
-            taxRate: taxRate,
-            taxLabel: taxLabel,
-          ),
+          _CartTotalsBlock(onRefreshAll: widget.onRefreshAll),
         ],
       ),
+    );
+  }
+}
+
+/// Total + tombol aksi — terpisah dari list agar scroll cart tidak rebuild footer.
+class _CartTotalsBlock extends ConsumerWidget {
+  const _CartTotalsBlock({required this.onRefreshAll});
+  final Future<void> Function() onRefreshAll;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final totals = ref.watch(cartTotalsProvider);
+    return Column(
+      children: [
+        _TotalsSection(
+          subtotal: totals.subtotal,
+          discount: totals.discount,
+          tax: totals.tax,
+          total: totals.total,
+          showDiscount: totals.showDiscount,
+          discountLabel: totals.discountLabel,
+          taxLabelOverride: totals.taxLabel,
+        ),
+        const SizedBox(height: 8),
+        _ActionsSection(
+          onRefreshAll: onRefreshAll,
+          cartTotalCents: totals.total,
+          taxRate: totals.taxRate,
+          taxLabel: totals.taxLabel,
+        ),
+      ],
     );
   }
 }
@@ -152,62 +146,21 @@ class _CartPanelState extends ConsumerState<CartPanel> {
 // }
 
 
-class _CartList extends ConsumerStatefulWidget {
-  @override
-  ConsumerState<_CartList> createState() => _CartListState();
-}
+class _CartList extends ConsumerWidget {
+  const _CartList();
 
-class _CartListState extends ConsumerState<_CartList> {
-  // Kuota â€œpesanan lamaâ€ per key (sku|price_cents)
-  Map<String, int> _baseQty = {};
+  static String _keyOf(CartItem p) => '${p.sku}|${p.priceCents}';
 
   @override
-  void initState() {
-    super.initState();
-    _loadBaseQuota();
-  }
-
-  Future<void> _loadBaseQuota() async {
-    try {
-      final sp = await SharedPreferences.getInstance();
-      final baseStr = sp.getString('pos.active.draft.base_items');
-      final List base = baseStr != null ? (jsonDecode(baseStr) as List) : const [];
-      _baseQty = _countMapFromList(base);
-      if (mounted) setState(() {});
-    } catch (_) {
-      _baseQty = {};
-      if (mounted) setState(() {});
-    }
-  }
-
-  /// Hitung kuota dari list base_items (tiap entry bisa punya qty)
-  Map<String, int> _countMapFromList(List base) {
-    final m = <String, int>{};
-    for (final raw in base) {
-      final it = Map<String, dynamic>.from(raw as Map);
-      final sku = (it['sku'] ?? (it['menu_code'] != null ? 'menu:${it['menu_code']}' : 'unknown')).toString();
-      final price = (it['price_cents'] as num?)?.toInt()
-          ?? (it['unit_price_cents'] as num?)?.toInt()
-          ?? 0;
-      final qty = (it['qty'] as num?)?.toInt() ?? 1;
-      final key = '$sku|$price';
-      m[key] = (m[key] ?? 0) + qty;
-    }
-    return m;
-  }
-
-  String _keyOf(CartItem p) {
-  return '${p.sku}|${p.priceCents}';
-}
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final cart = ref.watch(cartProvider);
+    final baseAsync = ref.watch(cartDraftBaseQuotaProvider);
+    final baseQty = baseAsync.valueOrNull ?? const {};
 
     if (cart.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        children: [
+        children: const [
           SizedBox(
             height: 220,
             child: Center(
@@ -222,78 +175,106 @@ class _CartListState extends ConsumerState<_CartList> {
       );
     }
 
-    // counter berjalan untuk menentukan â€œlamaâ€ vs â€œtambahanâ€
-    final running = <String, int>{};
-    final children = <Widget>[];
-    bool separatorInserted = false;
+    final rows = _buildRowMeta(cart, baseQty);
+    final hasBase = baseQty.values.any((v) => v > 0);
+    final itemCount = rows.length + (hasBase ? 1 : 0);
 
-    // (opsional) kalau ada baseQty dan belum ada tambahan sama sekali,
-    // tampilkan label "Pesanan Lama" di atas
-    final hasBase = _baseQty.values.any((v) => v > 0);
-    if (hasBase) {
-      children.add(const _CartOldLabel());
-    }
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      cacheExtent: 240,
+      addAutomaticKeepAlives: false,
+      addRepaintBoundaries: true,
+      itemCount: itemCount,
+      itemBuilder: (context, index) {
+        if (hasBase && index == 0) {
+          return const _CartOldLabel();
+        }
+        final rowIndex = hasBase ? index - 1 : index;
+        final meta = rows[rowIndex];
+        if (meta.showSeparator) {
+          return const _CartSectionSeparator();
+        }
+        final item = meta.item!;
+        return _CartRowWithAddedFlag(
+          key: ValueKey('${item.sku}|${item.priceCents}|${item.qty}'),
+          product: item,
+          isAdded: meta.isAdded,
+        );
+      },
+    );
+  }
+
+  static List<_CartRowMeta> _buildRowMeta(
+    List<CartItem> cart,
+    Map<String, int> baseQty,
+  ) {
+    final running = <String, int>{};
+    final out = <_CartRowMeta>[];
+    var separatorInserted = false;
+    final hasBase = baseQty.values.any((v) => v > 0);
 
     for (final item in cart) {
       final key = _keyOf(item);
-      final seen = (running[key] ?? 0) + item.qty; // row menambah sesuai qty baris
       final before = running[key] ?? 0;
+      final seen = before + item.qty;
       running[key] = seen;
 
-      final base = _baseQty[key] ?? 0;
+      final base = baseQty[key] ?? 0;
       final wasWithinBase = before < base;
       final nowExceedsBase = seen > base;
 
-      // sisipkan separator tepat di transisi pertama dari "lama" -> "tambahan"
       if (!separatorInserted && hasBase && wasWithinBase && nowExceedsBase) {
-        children.add(const _CartSectionSeparator());
+        out.add(const _CartRowMeta.separator());
         separatorInserted = true;
       } else if (!separatorInserted && !hasBase) {
-        // kalau tidak ada base (bukan Continue), semua adalah tambahan
-        children.add(const _CartSectionSeparator());
+        out.add(const _CartRowMeta.separator());
         separatorInserted = true;
       }
 
-      final isAdded = (running[key] ?? 0) > base;
-      children.add(_CartRowWithAddedFlag(product: item, isAdded: isAdded, ref: ref));
+      out.add(_CartRowMeta(
+        item: item,
+        isAdded: seen > base,
+      ));
     }
-
-    return RefreshIndicator.adaptive(
-      onRefresh: () async {
-        await _loadBaseQuota(); // refresh kuota saat pull-to-refresh
-      },
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: children,
-      ),
-    );
+    return out;
   }
 }
 
-class _CartRowWithAddedFlag extends StatelessWidget {
-    final CartItem product;
-  final bool isAdded;
-  final WidgetRef ref;
+class _CartRowMeta {
+  const _CartRowMeta({required this.item, required this.isAdded})
+      : showSeparator = false;
+  const _CartRowMeta.separator()
+      : item = null,
+        isAdded = false,
+        showSeparator = true;
 
+  final CartItem? item;
+  final bool isAdded;
+  final bool showSeparator;
+}
+
+class _CartRowWithAddedFlag extends ConsumerWidget {
   const _CartRowWithAddedFlag({
     super.key,
     required this.product,
     required this.isAdded,
-    required this.ref,
   });
 
+  final CartItem product;
+  final bool isAdded;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final name = isAdded ? '${product.name} (Tambahan)' : product.name;
     return ListTile(
       dense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
       title: Text(
-        '$name Ã— ${product.qty}',
+        '$name × ${product.qty}',
         style: const TextStyle(fontWeight: FontWeight.w600, color: PosTheme.black),
       ),
       subtitle: Text(
-        '${rp(product.priceCents)} Â· ${rp(product.priceCents * product.qty)}',
+        '${rp(product.priceCents)} · ${rp(product.priceCents * product.qty)}',
         style: const TextStyle(fontSize: 12, color: PosTheme.muted),
       ),
       trailing: Row(
@@ -437,7 +418,7 @@ class _ActionsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final cart = ref.watch(cartProvider);
+    final cartEmpty = ref.watch(cartProvider.select((c) => c.isEmpty));
 
     final filledBlack = FilledButton.styleFrom(
       backgroundColor: PosTheme.black,
@@ -453,7 +434,7 @@ class _ActionsSection extends ConsumerWidget {
     );
 
     Future<void> pay() async {
-      if (cart.isEmpty) return;
+      if (ref.read(cartProvider).isEmpty) return;
       await showCartPayDialog(
         context,
         ref,
@@ -833,6 +814,7 @@ Future<void> saveBillLocalOnly() async {
           showTopSuccess(context, 'Bill diupdate (tambahan) ke Open Bills');
           await ref.read(cartProvider.notifier).clear();
           ref.invalidate(productsProvider);
+          ref.invalidate(cartDraftBaseQuotaProvider);
         }
         return;
       }
@@ -866,6 +848,7 @@ Future<void> saveBillLocalOnly() async {
       showTopSuccess(context, 'Bill baru disimpan ke Open Bills');
       await ref.read(cartProvider.notifier).clear();
       ref.invalidate(productsProvider);
+      ref.invalidate(cartDraftBaseQuotaProvider);
     }
   } catch (e) {
     if (context.mounted) showTopError(context, 'Gagal simpan bill: $e');
@@ -909,7 +892,7 @@ Future<void> saveBillLocalOnly() async {
 
 
     Future<void> showSplitDialog() async {
-      if (cart.isEmpty) return;
+      if (ref.read(cartProvider).isEmpty) return;
       await showCartSplitDialog(
         context,
         ref,
@@ -1002,7 +985,7 @@ Future<void> saveBillLocalOnly() async {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: cart.isEmpty ? null : saveBillLocalOnly,
+                onPressed: cartEmpty ? null : saveBillLocalOnly,
                 style: outlinedBlack,
                 icon: const Icon(Icons.save_alt),
                 label: const Text('Save Bill'),
@@ -1011,7 +994,7 @@ Future<void> saveBillLocalOnly() async {
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: cart.isEmpty ? null : printQueue,
+                onPressed: cartEmpty ? null : printQueue,
                 style: outlinedBlack,
                 icon: const Icon(Icons.print),
                 label: const Text('Print Queue'),
@@ -1024,7 +1007,7 @@ Future<void> saveBillLocalOnly() async {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: cart.isEmpty ? null : showSplitDialog,
+                onPressed: cartEmpty ? null : showSplitDialog,
                 style: outlinedBlack,
                 icon: const Icon(Icons.call_split),
                 label: const Text('Split Bill'),
@@ -1037,7 +1020,7 @@ Future<void> saveBillLocalOnly() async {
           children: [
             Expanded(
               child: FilledButton(
-                onPressed: cart.isEmpty ? null : pay,
+                onPressed: cartEmpty ? null : pay,
                 style: filledBlack,
                 child: const Text('Pay'),
               ),
@@ -1045,7 +1028,7 @@ Future<void> saveBillLocalOnly() async {
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton(
-                onPressed: cart.isEmpty
+                onPressed: cartEmpty
                     ? null
                     : () => ref.read(cartProvider.notifier).clear(),
                 style: outlinedBlack,
