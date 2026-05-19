@@ -1,0 +1,6 @@
+# Copy this file to `android/gradle.properties.local` and fill with real values.
+# Keep the local file private and never commit it.
+RELEASE_STORE_FILE=release-key.jks
+RELEASE_STORE_PASSWORD=replace-with-real-password
+RELEASE_KEY_ALIAS=upload
+RELEASE_KEY_PASSWORD=replace-with-real-password
